@@ -1,7 +1,0 @@
-{
-  "name": "Nusantara HRIS - Modern Cloud HR & Payroll",
-  "description": "Aplikasi HRIS modern berbasis Hono & D1 dengan SSR, Absensi Online, Cuti & Izin, Payroll Otomatis, Reimbursement, Jadwal Rapat, Multi-role, dan Android REST API siap pakai.",
-  "requestFramePermissions": ["camera", "geolocation"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
-
