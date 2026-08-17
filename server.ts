@@ -26,8 +26,12 @@ app.route('/api/v1', apiRoutes);
 async function getAuthUser(c: any) {
   const token = getCookie(c, 'hris_token') || getCookie(c, 'auth_token') || c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return null;
-  const payload = await verifyJWT(token);
-  return payload;
+  try {
+    const payload = await verifyJWT(token);
+    return payload;
+  } catch (e) {
+    return null;
+  }
 }
 
 // 3. SSR Frontend View Routes (app/)
@@ -84,8 +88,17 @@ app.post('/login', async (c) => {
 // Auth Guard for SSR Web Pages
 app.use('*', async (c, next) => {
   const path = c.req.path;
-  if (path.startsWith('/api') || path === '/login' || path.startsWith('/public') || path === '/client.js') {
-    return next();
+  
+  // Abaikan pengecekan token untuk rute publik dan file statis
+  if (
+    path.startsWith('/api') || 
+    path === '/login' || 
+    path.startsWith('/public') || 
+    path.startsWith('/assets') || 
+    path === '/client.js'
+  ) {
+    await next();
+    return;
   }
 
   const user = await getAuthUser(c);
@@ -94,7 +107,7 @@ app.use('*', async (c, next) => {
   }
 
   c.set('user', user);
-  return next();
+  await next();
 });
 
 // Dashboard Overview (Bento Grid)
@@ -170,8 +183,28 @@ app.get('/api-docs', async (c) => {
 // 4. ADAPTOR LINGKUNGAN (CLOUDFARE PAGES vs LOKAL)
 // =====================================================================
 
-// Wajib untuk Cloudflare Pages: Ekspor default dari aplikasi Hono
-export default app;
+// Wajib untuk Cloudflare Pages: Ekspor default object dengan fungsi `fetch` yang eksplisit
+export default {
+  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    try {
+      // 1. Serahkan request ke Hono terlebih dahulu
+      const res = await app.fetch(request, env, ctx);
+
+      // 2. Jika Hono merespons 404 (Not Found), 
+      // ini kemungkinan adalah permintaan file aset statis (CSS/JS) dari output Vite.
+      // Kita fallback mendelegasikan request ke sistem static asset bawaan Cloudflare Pages.
+      if (res.status === 404 && env.ASSETS) {
+        return await env.ASSETS.fetch(request);
+      }
+
+      return res;
+    } catch (error) {
+      console.error('Unhandled Server Error:', error);
+      // Memastikan selalu merespons dengan Response object Web API standar meskipun terjadi crash internal
+      return new Response('Internal Server Error', { status: 500 });
+    }
+  }
+};
 
 // Adaptor untuk pengembangan lokal menggunakan Node.js (misal: npm run dev)
 if (typeof process !== 'undefined' && process.release?.name === 'node') {
@@ -179,8 +212,8 @@ if (typeof process !== 'undefined' && process.release?.name === 'node') {
     import('@hono/node-server/serve-static').then(({ serveStatic }) => {
       
       // Serve static assets secara lokal
-      // Di produksi (Cloudflare Pages), hal ini ditangani otomatis oleh sistem Pages
       app.use('/public/*', serveStatic({ root: './' }));
+      app.use('/assets/*', serveStatic({ root: './dist' }));
       app.use('/client.js', serveStatic({ path: './public/client.js' }));
       app.use('/client.ts', serveStatic({ path: './client.ts' }));
 
