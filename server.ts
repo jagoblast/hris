@@ -4,6 +4,7 @@ import apiRoutes from './src/routes/api';
 import { verifyJWT, signJWT } from './src/utils/jwt';
 import { db } from './src/db/d1';
 import { User } from './src/types';
+import { authMiddleware } from './src/middleware/auth';
 
 // Import SSR Page Views
 import { DashboardPage } from './app/routes/dashboard';
@@ -16,32 +17,24 @@ import { EmployeesPage } from './app/routes/employees';
 import { SettingsPage } from './app/routes/settings';
 import { ApiDocsPage } from './app/routes/api-docs';
 import { LoginPage } from './app/routes/login';
-import { RegisterPage } from './app/routes/register'; // <-- Tambahan 1: Import Halaman Register
+import { RegisterPage } from './app/routes/register';
 
 const app = new Hono();
 
-// 1. Mount API Routes
+// 1. Pasang authMiddleware secara global agar membaca token/cookie di setiap request API & SSR
+app.use('*', authMiddleware);
+
+// 2. Mount API Routes
 app.route('/api/v1', apiRoutes);
 
-// 2. Auth Helper
-async function getAuthUser(c: any) {
-  const token = getCookie(c, 'hris_token') || getCookie(c, 'auth_token') || c.req.header('Authorization')?.replace('Bearer ', '');
-  if (!token) return null;
-  try {
-    return await verifyJWT(token);
-  } catch (e) {
-    return null;
-  }
-}
-
-// 3. Auth Guard
+// 3. Auth Guard khusus untuk halaman SSR Frontend (Web Browser)
 app.use('*', async (c, next) => {
   const path = c.req.path;
   
   if (
     path.startsWith('/api') || 
     path === '/login' || 
-    path === '/register' || // <-- Tambahan 2: Bebaskan akses ke halaman register
+    path === '/register' || 
     path.startsWith('/assets') || 
     path.startsWith('/public') || 
     path === '/client.js'
@@ -50,18 +43,18 @@ app.use('*', async (c, next) => {
     return;
   }
 
-  const user = await getAuthUser(c);
+  // Mengambil data user yang sudah di-set oleh authMiddleware di atas
+  const user = c.get('user');
   if (!user) {
     return c.redirect('/login');
   }
 
-  c.set('user', user);
   await next();
 });
 
 // 4. SSR Frontend View Routes
 app.get('/login', async (c) => {
-  const user = await getAuthUser(c);
+  const user = c.get('user');
   if (user) return c.redirect('/');
   const page = await LoginPage();
   return c.html(page);
@@ -99,15 +92,11 @@ app.post('/login', async (c) => {
   return c.redirect('/');
 });
 
-// <-- Tambahan 3: Rute GET untuk merender form HTML registrasi
 app.get('/register', async (c) => {
-  const user = await getAuthUser(c);
-  if (user) return c.redirect('/'); // Cegah user yang sudah login mengakses form ini
-  
-  // Tangkap pesan error dari API backend (jika dikembalikan via parameter URL)
-  const errorMsg = c.req.query('error'); 
+  const user = c.get('user');
+  if (user) return c.redirect('/');
+  const errorMsg = c.req.query('error');
   const page = await RegisterPage(errorMsg);
-  
   return c.html(page);
 });
 
@@ -168,5 +157,5 @@ app.get('/api-docs', async (c) => {
   return c.html(page);
 });
 
-// WAJIB: Hono menangani request sebagai worker (ini secara natif sudah sesuai standar Web Response Cloudflare)
+// WAJIB: Hono menangani request sebagai worker untuk Cloudflare Pages
 export default app;
