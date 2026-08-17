@@ -53,6 +53,88 @@ authApi.post('/login', async (c) => {
   }
 });
 
+// POST /api/v1/auth/register
+authApi.post('/register', async (c) => {
+  try {
+    const contentType = c.req.header('content-type') || '';
+    let name, email, password;
+
+    // Mendukung request dari API Android (JSON)
+    if (contentType.includes('application/json')) {
+      const body = await c.req.json();
+      name = body.name;
+      email = body.email;
+      password = body.password;
+    } 
+    // Mendukung request dari Form HTML SSR (URL-Encoded / Multipart)
+    else {
+      const body = await c.req.parseBody();
+      name = body.name as string;
+      email = body.email as string;
+      password = body.password as string;
+    }
+
+    name = (name || '').trim();
+    email = (email || '').trim().toLowerCase();
+    password = password || '';
+
+    const isForm = contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data');
+
+    // Validasi Field
+    if (!name || !email || !password) {
+      return isForm 
+        ? c.redirect('/register?error=Semua+field+wajib+diisi.') 
+        : c.json({ success: false, error: 'Semua field wajib diisi.' }, 400);
+    }
+
+    // Cek duplikasi email
+    const existingUser = await db
+      .prepare('SELECT * FROM users WHERE email = ?')
+      .bind(email)
+      .first<User>();
+
+    if (existingUser) {
+      return isForm 
+        ? c.redirect('/register?error=Email+sudah+terdaftar.+Gunakan+email+lain.') 
+        : c.json({ success: false, error: 'Email sudah terdaftar.' }, 400);
+    }
+
+    // Generate ID unik dan data default
+    const id = 'usr_' + Date.now().toString(36);
+    const nip = 'ADM-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000);
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Eksekusi insert ke database Cloudflare D1
+    await db
+      .prepare(`
+        INSERT INTO users 
+        (id, nip, name, email, password_hash, role, position, department, phone, base_salary, allowance_transport, allowance_meal, join_date, leave_quota, avatar, status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bind(
+        id, nip, name, email, password, 
+        'ADMIN', 'System Administrator', 'Information Technology', 
+        '', 10000000, 1000000, 1000000, 
+        today, 12, '', 'ACTIVE'
+      )
+      .run();
+
+    // Respons sukses (Redirect untuk Web, JSON untuk Android App)
+    if (isForm) {
+      return c.redirect('/login');
+    }
+
+    return c.json({
+      success: true,
+      message: 'Registrasi Admin berhasil',
+      user: { id, nip, name, email, role: 'ADMIN' }
+    });
+
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message || 'Internal server error' }, 500);
+  }
+});
+
 // POST /api/v1/auth/logout
 authApi.post('/logout', (c) => {
   deleteCookie(c, 'auth_token', { path: '/' });
