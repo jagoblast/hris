@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
-import { db } from '../../db/d1';
-import { signJWT } from '../../utils/jwt'; // DIPERBAIKI: Menggunakan signJWT
+import { getDB } from '../../db/d1';
+import { signJWT } from '../../utils/jwt';
 import { requireAuth } from '../../middleware/auth';
 import { User } from '../../types';
 
@@ -10,6 +10,7 @@ const authApi = new Hono();
 // POST /api/v1/auth/login
 authApi.post('/login', async (c) => {
   try {
+    const db = getDB(c);
     const body = await c.req.json();
     const { email, password } = body;
 
@@ -27,7 +28,6 @@ authApi.post('/login', async (c) => {
       return c.json({ success: false, error: 'Akun Anda dinonaktifkan. Hubungi HRD/Admin.' }, 403);
     }
 
-    // DIPERBAIKI: Menggunakan signJWT sesuai dengan struktur utilitas JWT-mu
     const token = await signJWT({
       sub: user.id,
       nip: user.nip,
@@ -39,7 +39,6 @@ authApi.post('/login', async (c) => {
       avatar: user.avatar,
     });
 
-    // Set cookie for browser SSR navigation
     setCookie(c, 'auth_token', token, {
       path: '/',
       httpOnly: false, 
@@ -66,6 +65,7 @@ authApi.post('/login', async (c) => {
 // POST /api/v1/auth/register
 authApi.post('/register', async (c) => {
   try {
+    const db = getDB(c);
     const contentType = c.req.header('content-type') || '';
     let name, email, password;
 
@@ -146,6 +146,7 @@ authApi.post('/logout', (c) => {
 
 // GET /api/v1/auth/me
 authApi.get('/me', requireAuth(), async (c) => {
+  const db = getDB(c);
   const jwtUser = c.get('user')!;
   const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(jwtUser.sub).first<User>();
   if (!user) {
@@ -157,6 +158,7 @@ authApi.get('/me', requireAuth(), async (c) => {
 
 // GET /api/v1/auth/demo-accounts
 authApi.get('/demo-accounts', async (c) => {
+  const db = getDB(c);
   const res = await db.prepare('SELECT id, nip, name, email, role, position, department, avatar FROM users').all<Partial<User>>();
   return c.json({
     success: true,
