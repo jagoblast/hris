@@ -16,6 +16,7 @@ import { EmployeesPage } from './app/routes/employees';
 import { SettingsPage } from './app/routes/settings';
 import { ApiDocsPage } from './app/routes/api-docs';
 import { LoginPage } from './app/routes/login';
+import { RegisterPage } from './app/routes/register'; // <-- Tambahan 1: Import Halaman Register
 
 const app = new Hono();
 
@@ -40,6 +41,7 @@ app.use('*', async (c, next) => {
   if (
     path.startsWith('/api') || 
     path === '/login' || 
+    path === '/register' || // <-- Tambahan 2: Bebaskan akses ke halaman register
     path.startsWith('/assets') || 
     path.startsWith('/public') || 
     path === '/client.js'
@@ -95,6 +97,18 @@ app.post('/login', async (c) => {
   setCookie(c, 'hris_token', token, { path: '/', httpOnly: false, sameSite: 'Lax', maxAge: 604800 });
 
   return c.redirect('/');
+});
+
+// <-- Tambahan 3: Rute GET untuk merender form HTML registrasi
+app.get('/register', async (c) => {
+  const user = await getAuthUser(c);
+  if (user) return c.redirect('/'); // Cegah user yang sudah login mengakses form ini
+  
+  // Tangkap pesan error dari API backend (jika dikembalikan via parameter URL)
+  const errorMsg = c.req.query('error'); 
+  const page = await RegisterPage(errorMsg);
+  
+  return c.html(page);
 });
 
 app.get('/', async (c) => {
