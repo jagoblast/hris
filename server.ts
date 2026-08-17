@@ -1,5 +1,3 @@
-import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import apiRoutes from './src/routes/api';
@@ -19,18 +17,12 @@ import { SettingsPage } from './app/routes/settings';
 import { ApiDocsPage } from './app/routes/api-docs';
 import { LoginPage } from './app/routes/login';
 
-
 const app = new Hono();
 
-// 1. Serve static assets from /public directory
-app.use('/public/*', serveStatic({ root: './' }));
-app.use('/client.js', serveStatic({ path: './public/client.js' }));
-app.use('/client.ts', serveStatic({ path: './client.ts' }));
-
-// 2. Mount API Routes for Android Mobile & Web Clients
+// 1. Mount API Routes for Android Mobile & Web Clients
 app.route('/api/v1', apiRoutes);
 
-// 3. Helper to extract authenticated user from Cookie or Header
+// 2. Helper to extract authenticated user from Cookie or Header
 async function getAuthUser(c: any) {
   const token = getCookie(c, 'hris_token') || getCookie(c, 'auth_token') || c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return null;
@@ -38,7 +30,7 @@ async function getAuthUser(c: any) {
   return payload;
 }
 
-// 4. SSR Frontend View Routes (app/)
+// 3. SSR Frontend View Routes (app/)
 
 // Login Page (GET)
 app.get('/login', async (c) => {
@@ -168,19 +160,37 @@ app.get('/settings', async (c) => {
 
 // Android API Docs & Sandbox
 app.get('/api-docs', async (c) => {
-
   const user = c.get('user');
   const page = ApiDocsPage(user);
   return c.html(page);
 });
 
-// Start Server
-const port = 3000;
-console.log(`🚀 Nusantara HRIS Bento Server running on http://0.0.0.0:${port}`);
-serve({
-  fetch: app.fetch,
-  port,
-  hostname: '0.0.0.0',
-});
 
+// =====================================================================
+// 4. ADAPTOR LINGKUNGAN (CLOUDFARE PAGES vs LOKAL)
+// =====================================================================
+
+// Wajib untuk Cloudflare Pages: Ekspor default dari aplikasi Hono
 export default app;
+
+// Adaptor untuk pengembangan lokal menggunakan Node.js (misal: npm run dev)
+if (typeof process !== 'undefined' && process.release?.name === 'node') {
+  import('@hono/node-server').then(({ serve }) => {
+    import('@hono/node-server/serve-static').then(({ serveStatic }) => {
+      
+      // Serve static assets secara lokal
+      // Di produksi (Cloudflare Pages), hal ini ditangani otomatis oleh sistem Pages
+      app.use('/public/*', serveStatic({ root: './' }));
+      app.use('/client.js', serveStatic({ path: './public/client.js' }));
+      app.use('/client.ts', serveStatic({ path: './client.ts' }));
+
+      const port = 3000;
+      console.log(`🚀 Nusantara HRIS Bento Server running locally on http://0.0.0.0:${port}`);
+      serve({
+        fetch: app.fetch,
+        port,
+        hostname: '0.0.0.0',
+      });
+    });
+  });
+}
