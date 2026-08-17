@@ -37,10 +37,6 @@ interface DatabaseStore {
   settings: AppSetting[];
 }
 
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DATA_FILE = path.join(DATA_DIR, 'd1_database.json');
-
 class D1DatabaseEngine implements D1Database {
   private store: DatabaseStore;
 
@@ -89,42 +85,17 @@ class D1DatabaseEngine implements D1Database {
     ];
   }
 
+  // Load Data sekarang hanya menggunakan Initial Seed (In-Memory)
+  // Tidak ada lagi pembacaan sistem file lokal (fs)
   private loadData(): DatabaseStore {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (!parsed.settings || !Array.isArray(parsed.settings) || parsed.settings.length === 0) {
-          parsed.settings = this.getDefaultSettings();
-        } else {
-          const defs = this.getDefaultSettings();
-          for (const d of defs) {
-            if (!parsed.settings.some((s: AppSetting) => s.key === d.key)) {
-              parsed.settings.push(d);
-            }
-          }
-        }
-        return parsed;
-      }
-    } catch (e) {
-      console.warn('Could not read persistent DB file, initializing fresh store:', e);
-    }
     return this.getInitialSeed();
   }
 
-
+  // Save Data dinonaktifkan sementara untuk environment Cloudflare
+  // (Data akan hilang saat worker restart selama belum dihubungkan ke real Cloudflare D1 binding)
   public saveData() {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(DATA_FILE, JSON.stringify(this.store, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('Error persisting D1 database:', e);
-    }
+      // Intentionally left blank. 
+      // Do not write to file system in Cloudflare environment.
   }
 
   public getRawStore(): DatabaseStore {
@@ -141,7 +112,7 @@ class D1DatabaseEngine implements D1Database {
         nip: 'ADM-2026-001',
         name: 'Budi Santoso, S.Kom',
         email: 'admin@nusantara.id',
-        password_hash: 'admin123', // plain or hashed for convenience
+        password_hash: 'admin123', 
         role: 'ADMIN',
         position: 'Head of IT & System Administrator',
         department: 'Information Technology',
@@ -302,7 +273,6 @@ class D1DatabaseEngine implements D1Database {
         selfie_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150',
         created_at: `${today}T08:10:00.000Z`,
       },
-      // Yesterday complete logs
       {
         id: 'att_005',
         user_id: 'usr_emp_01',
@@ -517,7 +487,6 @@ class D1DatabaseEngine implements D1Database {
       settings: this.getDefaultSettings(),
     };
 
-
     return seed;
   }
 
@@ -534,7 +503,6 @@ class D1DatabaseEngine implements D1Database {
   }
 
   public async exec(query: string): Promise<{ count: number; duration: number }> {
-    // SQL Exec stub
     return { count: 1, duration: 2 };
   }
 }
@@ -589,8 +557,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
     const params = this.params;
 
     let results: any[] = [];
-
-    // Helper functions for user mapping
     const getUser = (id: string) => store.users.find(u => u.id === id);
 
     if (/FROM users/i.test(query)) {
@@ -712,7 +678,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
       results.sort((a, b) => a.key.localeCompare(b.key));
     }
 
-
     return {
       results: results as T[],
       success: true,
@@ -770,7 +735,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
         selfie_url: params[13] || null,
         created_at: new Date().toISOString(),
       };
-      // upsert check
       const idx = store.attendance.findIndex(a => a.user_id === newAtt.user_id && a.date === newAtt.date);
       if (idx >= 0) {
         store.attendance[idx] = newAtt;
@@ -779,7 +743,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
       }
       changes = 1;
     } else if (/UPDATE attendance SET/i.test(query)) {
-      // Typically check-out update: UPDATE attendance SET check_out_time = ?, work_hours = ?, notes = ? WHERE id = ?
       if (/WHERE id = \?/i.test(query)) {
         const attId = params[params.length - 1];
         const att = store.attendance.find(a => a.id === attId);
@@ -808,7 +771,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
       store.leaves.push(newLeave);
       changes = 1;
     } else if (/UPDATE leaves SET/i.test(query)) {
-      // UPDATE leaves SET status = ?, approved_by = ?, approved_at = ?, rejection_reason = ? WHERE id = ?
       const leaveId = params[params.length - 1];
       const leave = store.leaves.find(l => l.id === leaveId);
       if (leave) {
@@ -816,7 +778,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
         leave.approved_by = params[1] || null;
         leave.approved_at = params[2] || new Date().toISOString();
         leave.rejection_reason = params[3] || null;
-        // If approved and type is TAHUNAN, deduct leave quota
         if (leave.status === 'APPROVED' && leave.leave_type === 'TAHUNAN') {
           const u = store.users.find(usr => usr.id === leave.user_id);
           if (u) {
@@ -840,7 +801,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
       store.reimbursements.push(newReimburse);
       changes = 1;
     } else if (/UPDATE reimbursements SET/i.test(query)) {
-      // UPDATE reimbursements SET status = ?, approved_by = ?, approved_at = ?, paid_at = ? WHERE id = ?
       const rmbId = params[params.length - 1];
       const rmb = store.reimbursements.find(r => r.id === rmbId);
       if (rmb) {
@@ -947,8 +907,6 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
       }
       changes = 1;
     } else if (/UPDATE settings SET/i.test(query)) {
-      // e.g. UPDATE settings SET value = ? WHERE key = ?
-      // or UPDATE settings SET value = ?, updated_at = ? WHERE key = ?
       const key = params[params.length - 1];
       const val = String(params[0]);
       const setting = store.settings.find(s => s.key === key);
@@ -976,21 +934,14 @@ class D1PreparedStatementImpl implements D1PreparedStatement {
   }
 }
 
-// Global D1 instance singleton
 export const db: D1Database = new D1DatabaseEngine();
 export const getDatabase = (): D1Database => db;
 
-/**
- * Helper to fetch a single setting value from the settings table
- */
 export async function getSettingValue(key: string, defaultValue = ''): Promise<string> {
   const row = await db.prepare('SELECT * FROM settings WHERE key = ?').bind(key).first<AppSetting>();
   return row?.value ?? defaultValue;
 }
 
-/**
- * Helper to fetch all settings as key-value map
- */
 export async function getAllSettingsMap(): Promise<Record<string, string>> {
   const res = await db.prepare('SELECT * FROM settings').all<AppSetting>();
   const map: Record<string, string> = {};
@@ -999,4 +950,3 @@ export async function getAllSettingsMap(): Promise<Record<string, string>> {
   }
   return map;
 }
-
