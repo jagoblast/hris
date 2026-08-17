@@ -53,28 +53,52 @@ reimbursementsApi.post('/', async (c) => {
   }
 });
 
-reimbursementsApi.patch('/:id/status', requireRole('ADMIN', 'HRD'), async (c) => {
+// ENDPOINT BARU: Sesuai dengan tombol "Approve" di frontend (tanpa mewajibkan body JSON)
+reimbursementsApi.patch('/:id/approve', requireRole('ADMIN', 'HRD'), async (c) => {
   try {
     const db = getDB(c);
     const user = c.get('user')!;
     const id = c.req.param('id');
-    const body = await c.req.json();
     const now = new Date().toISOString();
 
-    let query = 'UPDATE reimbursements SET status = ?, approved_by = ?, approved_at = ?';
-    const binds: any[] = [body.status, user.sub, now];
+    await db.prepare('UPDATE reimbursements SET status = ?, approved_by = ?, approved_at = ? WHERE id = ?')
+      .bind('APPROVED', user.sub, now, id)
+      .run();
 
-    if (body.status === 'PAID') {
-      query += ', paid_at = ?';
-      binds.push(now);
-    }
+    return c.json({ success: true, message: 'Reimbursement berhasil disetujui' });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// ENDPOINT BARU: Jaga-jaga jika ada tombol "Tolak" di UI kamu
+reimbursementsApi.patch('/:id/reject', requireRole('ADMIN', 'HRD'), async (c) => {
+  try {
+    const db = getDB(c);
+    const id = c.req.param('id');
     
-    query += ' WHERE id = ?';
-    binds.push(id);
+    await db.prepare('UPDATE reimbursements SET status = ? WHERE id = ?')
+      .bind('REJECTED', id)
+      .run();
 
-    await db.prepare(query).bind(...binds).run();
+    return c.json({ success: true, message: 'Reimbursement ditolak' });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
 
-    return c.json({ success: true, message: `Reimbursement berhasil diubah ke status ${body.status}` });
+// ENDPOINT BARU: Jaga-jaga jika ada tombol "Tandai Dibayar" di UI kamu
+reimbursementsApi.patch('/:id/pay', requireRole('ADMIN', 'HRD'), async (c) => {
+  try {
+    const db = getDB(c);
+    const id = c.req.param('id');
+    const now = new Date().toISOString();
+
+    await db.prepare('UPDATE reimbursements SET status = ?, paid_at = ? WHERE id = ?')
+      .bind('PAID', now, id)
+      .run();
+
+    return c.json({ success: true, message: 'Reimbursement ditandai telah dibayar' });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
   }
