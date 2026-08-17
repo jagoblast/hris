@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import { db } from '../../db/d1';
-import { generateToken } from '../../utils/jwt';
+import { signJWT } from '../../utils/jwt'; // DIPERBAIKI: Menggunakan signJWT
 import { requireAuth } from '../../middleware/auth';
 import { User } from '../../types';
 
@@ -27,12 +27,22 @@ authApi.post('/login', async (c) => {
       return c.json({ success: false, error: 'Akun Anda dinonaktifkan. Hubungi HRD/Admin.' }, 403);
     }
 
-    const token = await generateToken(user);
+    // DIPERBAIKI: Menggunakan signJWT sesuai dengan struktur utilitas JWT-mu
+    const token = await signJWT({
+      sub: user.id,
+      nip: user.nip,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      department: user.department,
+      position: user.position,
+      avatar: user.avatar,
+    });
 
     // Set cookie for browser SSR navigation
     setCookie(c, 'auth_token', token, {
       path: '/',
-      httpOnly: false, // Accessible for client-side headers if needed
+      httpOnly: false, 
       secure: false,
       sameSite: 'Lax',
       maxAge: 7 * 24 * 60 * 60,
@@ -59,14 +69,12 @@ authApi.post('/register', async (c) => {
     const contentType = c.req.header('content-type') || '';
     let name, email, password;
 
-    // Mendukung request dari API Android (JSON)
     if (contentType.includes('application/json')) {
       const body = await c.req.json();
       name = body.name;
       email = body.email;
       password = body.password;
     } 
-    // Mendukung request dari Form HTML SSR (URL-Encoded / Multipart)
     else {
       const body = await c.req.parseBody();
       name = body.name as string;
@@ -80,14 +88,12 @@ authApi.post('/register', async (c) => {
 
     const isForm = contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data');
 
-    // Validasi Field
     if (!name || !email || !password) {
       return isForm 
         ? c.redirect('/register?error=Semua+field+wajib+diisi.') 
         : c.json({ success: false, error: 'Semua field wajib diisi.' }, 400);
     }
 
-    // Cek duplikasi email
     const existingUser = await db
       .prepare('SELECT * FROM users WHERE email = ?')
       .bind(email)
@@ -99,12 +105,10 @@ authApi.post('/register', async (c) => {
         : c.json({ success: false, error: 'Email sudah terdaftar.' }, 400);
     }
 
-    // Generate ID unik dan data default
     const id = 'usr_' + Date.now().toString(36);
     const nip = 'ADM-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000);
     const today = new Date().toISOString().split('T')[0];
     
-    // Eksekusi insert ke database Cloudflare D1
     await db
       .prepare(`
         INSERT INTO users 
@@ -119,7 +123,6 @@ authApi.post('/register', async (c) => {
       )
       .run();
 
-    // Respons sukses (Redirect untuk Web, JSON untuk Android App)
     if (isForm) {
       return c.redirect('/login');
     }
