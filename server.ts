@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import apiRoutes from './src/routes/api';
 import { verifyJWT, signJWT } from './src/utils/jwt';
-import { db } from './src/db/d1';
+import { db, initGlobalDB } from './src/db/d1'; // IMPORT initGlobalDB
 import { User } from './src/types';
 import { authMiddleware } from './src/middleware/auth';
 
@@ -21,16 +21,23 @@ import { RegisterPage } from './app/routes/register';
 
 const app = new Hono();
 
-// 1. Pasang authMiddleware secara global agar membaca token/cookie di setiap request API & SSR
+// 0. TANGKAP DB CLOUDFLARE SECARA GLOBAL (WAJIB PERTAMA KALI JALAN)
+app.use('*', async (c, next) => {
+  if (c.env && c.env.DB) {
+    initGlobalDB(c.env.DB);
+  }
+  await next();
+});
+
+// 1. Pasang authMiddleware secara global
 app.use('*', authMiddleware);
 
 // 2. Mount API Routes
 app.route('/api/v1', apiRoutes);
 
-// 3. Auth Guard khusus untuk halaman SSR Frontend (Web Browser)
+// 3. Auth Guard khusus untuk halaman SSR Frontend
 app.use('*', async (c, next) => {
   const path = c.req.path;
-  
   if (
     path.startsWith('/api') || 
     path === '/login' || 
@@ -43,11 +50,8 @@ app.use('*', async (c, next) => {
     return;
   }
 
-  // Mengambil data user yang sudah di-set oleh authMiddleware di atas
   const user = c.get('user');
-  if (!user) {
-    return c.redirect('/login');
-  }
+  if (!user) return c.redirect('/login');
 
   await next();
 });
@@ -157,5 +161,4 @@ app.get('/api-docs', async (c) => {
   return c.html(page);
 });
 
-// WAJIB: Hono menangani request sebagai worker untuk Cloudflare Pages
 export default app;
