@@ -97,8 +97,8 @@ app.use('*', async (c, next) => {
     path.startsWith('/assets') || 
     path === '/client.js'
   ) {
-    await next();
-    return;
+    // WAJIB RETURN NEXT agar Response tidak terputus (Penyebab error Cloudflare)
+    return next();
   }
 
   const user = await getAuthUser(c);
@@ -107,7 +107,9 @@ app.use('*', async (c, next) => {
   }
 
   c.set('user', user);
-  await next();
+  
+  // WAJIB RETURN NEXT agar Response tidak terputus
+  return next();
 });
 
 // Dashboard Overview (Bento Grid)
@@ -183,16 +185,14 @@ app.get('/api-docs', async (c) => {
 // 4. ADAPTOR LINGKUNGAN (CLOUDFARE PAGES vs LOKAL)
 // =====================================================================
 
-// Wajib untuk Cloudflare Pages: Ekspor default object dengan fungsi `fetch` yang eksplisit
+// Ekspor default objek yang dibutuhkan oleh Cloudflare Pages
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     try {
-      // 1. Serahkan request ke Hono terlebih dahulu
+      // Jalankan aplikasi Hono
       const res = await app.fetch(request, env, ctx);
 
-      // 2. Jika Hono merespons 404 (Not Found), 
-      // ini kemungkinan adalah permintaan file aset statis (CSS/JS) dari output Vite.
-      // Kita fallback mendelegasikan request ke sistem static asset bawaan Cloudflare Pages.
+      // Tangkap aset statis (CSS/JS) yang dihasilkan Vite
       if (res.status === 404 && env.ASSETS) {
         return await env.ASSETS.fetch(request);
       }
@@ -200,13 +200,12 @@ export default {
       return res;
     } catch (error) {
       console.error('Unhandled Server Error:', error);
-      // Memastikan selalu merespons dengan Response object Web API standar meskipun terjadi crash internal
       return new Response('Internal Server Error', { status: 500 });
     }
   }
 };
 
-// Adaptor untuk pengembangan lokal menggunakan Node.js (misal: npm run dev)
+// Adaptor untuk pengembangan lokal (npm run dev)
 if (typeof process !== 'undefined' && process.release?.name === 'node') {
   import('@hono/node-server').then(({ serve }) => {
     import('@hono/node-server/serve-static').then(({ serveStatic }) => {
