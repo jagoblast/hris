@@ -1,6 +1,6 @@
 import { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { verifyToken } from '../utils/jwt';
+import { verifyJWT } from '../utils/jwt'; // DIPERBAIKI: Menggunakan verifyJWT
 import { JWTPayload, UserRole } from '../types';
 
 declare module 'hono' {
@@ -20,13 +20,18 @@ export async function authMiddleware(c: Context, next: Next) {
 
   // Check Cookie (Web SSR navigation)
   if (!token) {
-    token = getCookie(c, 'auth_token');
+    // Tambahkan fallback hris_token dan auth_token agar sama dengan konfigurasi setCookie
+    token = getCookie(c, 'auth_token') || getCookie(c, 'hris_token');
   }
 
   if (token) {
-    const payload = await verifyToken(token);
-    if (payload) {
-      c.set('user', payload);
+    try {
+      const payload = await verifyJWT(token); // DIPERBAIKI: Sesuai dengan penamaan di server.ts
+      if (payload) {
+        c.set('user', payload);
+      }
+    } catch (err) {
+      // Abaikan jika token invalid/expired, middleware akan lanjut dan dicegat oleh requireAuth
     }
   }
 
