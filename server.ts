@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import { getCookie, setCookie } from 'hono/cookie';
 import apiRoutes from './src/routes/api';
 import { verifyJWT, signJWT } from './src/utils/jwt';
 import { db } from './src/db/d1';
@@ -17,27 +17,12 @@ import { SettingsPage } from './app/routes/settings';
 import { ApiDocsPage } from './app/routes/api-docs';
 import { LoginPage } from './app/routes/login';
 
-// Definisi binding untuk Cloudflare Pages
-type Bindings = {
-  ASSETS: { fetch: typeof fetch };
-};
+const app = new Hono();
 
-const app = new Hono<{ Bindings: Bindings }>();
-
-const isCloudflare = typeof process === 'undefined' || process.release?.name !== 'node';
-
-// 1. Tangani Aset Statis dengan AMAN di dalam Router Hono
-// Menghindari wrapper fetch manual yang memicu error Promise di Cloudflare
-if (isCloudflare) {
-  app.get('/assets/*', (c) => c.env.ASSETS.fetch(c.req.raw));
-  app.get('/public/*', (c) => c.env.ASSETS.fetch(c.req.raw));
-  app.get('/client.js', (c) => c.env.ASSETS.fetch(c.req.raw));
-}
-
-// 2. Mount API Routes for Android Mobile & Web Clients
+// 1. Mount API Routes
 app.route('/api/v1', apiRoutes);
 
-// 3. Helper to extract authenticated user
+// 2. Auth Helper
 async function getAuthUser(c: any) {
   const token = getCookie(c, 'hris_token') || getCookie(c, 'auth_token') || c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return null;
@@ -48,7 +33,7 @@ async function getAuthUser(c: any) {
   }
 }
 
-// 4. Auth Guard for SSR Web Pages
+// 3. Auth Guard
 app.use('*', async (c, next) => {
   const path = c.req.path;
   
@@ -59,7 +44,8 @@ app.use('*', async (c, next) => {
     path.startsWith('/public') || 
     path === '/client.js'
   ) {
-    return next();
+    await next();
+    return;
   }
 
   const user = await getAuthUser(c);
@@ -68,10 +54,10 @@ app.use('*', async (c, next) => {
   }
 
   c.set('user', user);
-  return next();
+  await next();
 });
 
-// 5. SSR Frontend View Routes
+// 4. SSR Frontend View Routes
 app.get('/login', async (c) => {
   const user = await getAuthUser(c);
   if (user) return c.redirect('/');
@@ -168,36 +154,5 @@ app.get('/api-docs', async (c) => {
   return c.html(page);
 });
 
-// 6. Global Error Catcher (Mencegah Hono crash dan memutus Promise)
-app.onError((err, c) => {
-  console.error('Hono Internal Error:', err);
-  return c.text('Terjadi kesalahan internal server (500).', 500);
-});
-
-app.notFound((c) => {
-  return c.text('Halaman tidak ditemukan (404).', 404);
-});
-
-// =====================================================================
-// 7. ADAPTOR LINGKUNGAN (NODE.JS vs CLOUDFLARE)
-// =====================================================================
-
-// Adaptor untuk pengembangan lokal menggunakan Node.js (misal: npm run dev)
-if (!isCloudflare) {
-  import('@hono/node-server').then(({ serve }) => {
-    import('@hono/node-server/serve-static').then(({ serveStatic }) => {
-      app.use('/public/*', serveStatic({ root: './' }));
-      app.use('/assets/*', serveStatic({ root: './dist' }));
-      app.use('/client.js', serveStatic({ path: './public/client.js' }));
-      app.use('/client.ts', serveStatic({ path: './client.ts' }));
-
-      const port = 3000;
-      console.log(`🚀 Nusantara HRIS Bento Server running locally on http://0.0.0.0:${port}`);
-      serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
-    });
-  });
-}
-
-// WAJIB UNTUK CLOUDFLARE PAGES: Ekspor app secara langsung!
-// Ini akan menghilangkan error "Incorrect type for Promise" secara permanen
+// WAJIB: Hono menangani request sebagai worker (ini secara natif sudah sesuai standar Web Response Cloudflare)
 export default app;
